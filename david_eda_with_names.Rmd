@@ -1,0 +1,57 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+```{r}
+abnb <- read.csv("/Users/Buch/Desktop/Case Studies/AirBnB/airbnb.csv")
+hist(abnb$price)
+```
+Drop any observations between 2000 and 10000 per night, which account for roughly 1/1000 observations.
+```{r}
+hist(abnb$price)
+pricey <- abnb[abnb$price > 500,]
+nrow(pricey)/nrow(abnb)
+affordable <- abnb[abnb$price <= 500,]
+hist(affordable$price)
+hist(pricey$price, breaks = 100)
+pricey <- pricey[pricey$price < 10000,]
+hist(pricey$price)
+hist(log(affordable$price))
+hist(log(abnb$price))
+```
+
+
+```{r}
+plot(log(abnb$price), abnb$reviews_per_month)
+```
+
+
+```{r, BnB Name Formatting}
+names <- abnb$name
+names <- as.character(names)
+names <- strsplit(tolower(names), " ")
+
+words <- unlist(names)
+summary(factor(words))
+## Somewhat ad hoc, selecting among most common words from complete list of names. Trying to select words that don't indicate location or type of listing (e.g. "Midtown", "House"), and grouping words by intuition. Given unlimited time could try some kind of latent topic modeling for principled grouping
+adjectives <- list(c("cozy", "comfy", "comfortable"), c("spacious", "large", "huge", "big", "space"), c("beautiful", "lovely", "gorgeous"), c("new", "bright", "clean"), "modern", c("charming", "charm"), "sunny", "view", "quiet",  c("great", "amazing","prime", "best", "perfect"))
+
+
+features <- matrix(data = 0, nrow = length(names), ncol = length(adjectives))
+
+for(n in 1:length(names)){
+  for(c in  1:length(adjectives)){
+    for(a in adjectives[[c]]){
+      if(a %in% names[[n]]){features[n,c] <-  1}
+    }
+  }
+}
+
+nmod <- lm(log(abnb$price + 0.01) ~ features)
+summary(nmod)
+
+## Recommended Name "Perfect Modern (Optimal Listing Type) in (Optimal Location). Lots of Charm and Great View!!"
+
+## Note, this recommendation is based on price alone. We also need to find words that optimize popularity
+
+```
