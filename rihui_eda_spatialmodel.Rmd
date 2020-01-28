@@ -20,17 +20,15 @@ set.seed(1927)
 
 ## Date Cleaning
 
-
-
 ```{r}
 data=read.csv(file = 'AB_NYC_2019.csv') %>%
      na.omit() %>% #deleta all NAs %>% 
-     filter(price>0.001) #only consider the data with price>0
+     filter(price>0.001) #only consider the data with price>0.001
 cord=as.matrix(data %>% select(longitude,latitude))
 #extract locations
 ```
 
-Figure out the popular adjective words in roon names.
+Figure out the popular adjective words in room names.
 ```{r}
 data$name = data$name %>% 
         tolower() ##convert it to lower case
@@ -48,6 +46,19 @@ data=data %>% mutate(luxury=grepl('luxury',data$name) %>% as.numeric() )  %>%
 ```
 The top 3 popular adjective words are: private, spacious, luxury.
 
+##EDA
+```{r}
+
+```
+
+
+
+
+
+
+
+
+
 ## Model Building-Univariate
 Build an univariate gaussian spatial regression model: 
 ```{r echo = T, results = 'hide'}
@@ -56,9 +67,9 @@ starting <- list("tau.sq" = 1, "sigma.sq" = 1, "phi" = 6)
 tuning <- list("tau.sq" = 0.002, "sigma.sq" = 0.002, "phi" = 0.02)
 priors <- list("beta.Flat", "tau.sq.IG" = c(2, 1),
     "sigma.sq.IG" = c(2, 1), "phi.Unif" = c(3, 30))
-m.uni <- spLM(log(price)~room_type+minimum_nights+luxury+private+spacious+calculated_host_listings_count+availability_365,
-              data[1:10000,],
-              cord[1:10000,],
+m.uni_pri <- spLM(log(price)~room_type+minimum_nights+luxury+private+spacious+calculated_host_listings_count+availability_365,
+              data,
+              cord,
               knots = c(5, 5, 0),
               starting = starting,
               tuning = tuning, 
@@ -70,21 +81,25 @@ m.uni <- spLM(log(price)~room_type+minimum_nights+luxury+private+spacious+calcul
 
 Try to summarize the posterior samples
 ```{r echo = T, results = 'hide'}
-m.uni <- spRecover(m.uni, start = 1000)
+m.uni_pri <- spRecover(m.uni_pri, start = 1000)
 ```
 Do posterior summary: room_type, minimum_night, name "luxury" , host_listing_number are significant.
 ```{r}
-m.uni$p.beta.samples %>% summary(quantile=c(.025,.975))
+summary_pri=m.uni_pri$p.beta.samples %>% summary(quantile=c(.025,.975))
+summary_pri=cbind(summary_pri$statistics[,1],summary_pri$quantiles) %>% round(4)
+colnames(summary_pri)= c("mean", "2.5%", "97.5%")
+summary_pri
 ```
 
 Do the contour plot of $w$ using 500 datapoints.-not very meaningful
 ```{r}
-res=500
-w.hat <- apply(m.uni$p.w.recover.samples, 1, median)
+res=2000
+w.hat_pri <- apply(m.uni_pri$p.w.recover.samples, 1, median)
+w.hat_pri_quant <- apply(m.uni_pri$p.w.recover.samples, 1, quantile, probs = c(0.05, 0.95),  na.rm = TRUE)
 price_contour=data.frame(x=cord[1:res,1],
                          y=cord[1:res,2],
                          z=w.hat[1:res]) 
-w.hat.surf<-mba.surf(cbind(cord, w.hat), no.X = res, no.Y = res,extend = TRUE)$xyz.est
+w.hat.surf<-mba.surf(cbind(cord, w.hat_pri), no.X = res, no.Y = res,extend = TRUE)$xyz.est
 plot_ly(x=w.hat.surf$x,
         y=w.hat.surf$y,
     z=w.hat.surf$z, 
@@ -95,30 +110,114 @@ plot_ly(x=w.hat.surf$x,
 ```
 Look at the mean for each borough or neighbourhood: Manhattan is the most expensive borough. Tribeca, Chelsea,  West Village are top three most expensive neighbour_hoods.
 ```{r}
-subdata=data[1:10000,]
-borough_names=unique(subdata$neighbourhood_group)
+borough_names=unique(data$neighbourhood_group)
+####Ranking Boroughs
+borough_table_pri=rep(0,length(borough_names))
+names(borough_table_pri)<-borough_names
+i=1
+for (name in borough_names) {
+        borough_table_pri[i]=w.hat_pri[which(data$neighbourhood_group==name)] %>% mean()
+        i=i+1
+}
+
+
+####Ranking Neighbourhood
+neigh_names=unique(data$neighbourhood)
+neigh_table_pri=rep(0,length(neigh_names))
+names(neigh_table_pri)<-neigh_names
+i=1
+for (name in neigh_names) {
+        neigh_table_pri[i]=w.hat_pri[which(data$neighbourhood==name)] %>% mean()
+        i=i+1
+}
+
+
+```
+
+```{r}
+borough_table_pri  %>% sort
+neigh_table_pri %>% sort() ###Top 5
+```
+Look at the quantiles of boroughs
+```{r}
+
+borough_table_pri_quant=matrix(0,5,2)
+rownames(borough_table_pri_quant)<-borough_names
+i=1
+for (name in borough_names) {
+        borough_table_pri_quant[i,]=w.hat_pri_quant[,which(data$neighbourhood_group==name)] %>% rowMeans()
+        i=i+1
+}
+borough_tab=cbind(borough_table_pri_quant,borough_table_pri) 
+colnames(borough_tab)<-c("5%","95%","mean")
+borough_tab[order(borough_tab[,3]),]
+```
+Look at the quantiles of neighbourhoods
+
+Do some plot
+```{r}
+set.seed(1911)
+a=m.uni_pri$p.w.recover.samples
+wvalue_matrix=NULL
+for (name in borough_names) {
+       indices=which(data$neighbourhood_group==name)
+       subind=sample(indices,30)
+       wvalue=a[subind,sample(4000,30)] %>% as.vector() %>% round(2)
+       group=rep(name,900)
+       wvalue_matrix=rbind(wvalue_matrix,cbind(wvalue,group))
+}
+wvalue_matrix=as.data.frame(wvalue_matrix)
+wvalue_matrix$group=wvalue_matrix$group %>% as.factor()
+ggplot() + 
+geom_density(data=wvalue_matrix, aes(x=wvalue, group=group, fill=group),alpha=0.4)
+```
+
+
+## Build a model to model popularity
+Similarly a spatial regression model is built. This time we study the popularity instaed.
+```{r echo = T, results = 'hide'}
+n.samples <- 5000
+starting <- list("tau.sq" = 1, "sigma.sq" = 1, "phi" = 6)
+tuning <- list("tau.sq" = 0.002, "sigma.sq" = 0.002, "phi" = 0.02)
+priors <- list("beta.Flat", "tau.sq.IG" = c(2, 1),
+    "sigma.sq.IG" = c(2, 1), "phi.Unif" = c(3, 30))
+m.uni_pop <- spLM(log(reviews_per_month)~room_type+minimum_nights+luxury+private+spacious+calculated_host_listings_count+availability_365,
+              data[1:5000,],
+              cord[1:5000,],
+              knots = c(5, 5, 0),
+              starting = starting,
+              tuning = tuning, 
+              priors = priors, 
+              cov.model = "exponential",
+              n.samples = n.samples)
+```
+
+
+Try to summarize the posterior samples
+```{r echo = T, results = 'hide'}
+m.uni_pop <- spRecover(m.uni_pop, start = 1000)
+```
+
+```{r}
+m.uni_pop$p.beta.samples %>% summary(quantile=c(.025,.975))
+```
+
+Look at the mean for each borough or neighbourhood: Manhattan is the most expensive borough. Tribeca, Chelsea,  West Village are top three most expensive neighbour_hoods.
+```{r}
+
+w.hat <- apply(m.uni_pop$p.w.recover.samples, 1, median) ###Compute predictive w
+borough_names=unique(data$neighbourhood_group)
 ####Ranking Boroughs
 borough_table=rep(0,length(borough_names))
 names(borough_table)<-borough_names
 i=1
 for (name in borough_names) {
-        borough_table[i]=w.hat[which(subdata$neighbourhood_group==name)] %>% mean()
+        borough_table[i]=w.hat[which(data[1:5000,]$neighbourhood_group==name)] %>% mean()
         i=i+1
 }
 borough_table %>% sort()
-####Ranking Neighbourhood
-neigh_names=unique(subdata$neighbourhood)
-neigh_table=rep(0,length(neigh_names))
-names(neigh_table)<-neigh_names
-i=1
-for (name in neigh_names) {
-        neigh_table[i]=w.hat[which(subdata$neighbourhood==name)] %>% mean()
-        i=i+1
-}
-neigh_table %>% sort()
+
 ```
-
-
 
 
 ## Multivariate Modeling (Optional)
