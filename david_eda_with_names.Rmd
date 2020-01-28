@@ -4,7 +4,56 @@ output: html_notebook
 ---
 ```{r}
 abnb <- read.csv("/Users/Buch/Desktop/Case Studies/AirBnB/airbnb.csv")
-hist(abnb$price)
+## Drop $10,000 sites as they seem to be placeholders/spoofs
+## (see the airbnb website and also the histogram of prices)
+abnb <- abnb[abnb$price != 1e4,]
+
+## Notice Reviews per Month is set to 0 for exactly those sites that
+## have no reviews
+sum(is.na(abnb$reviews_per_month) != (abnb$number_of_reviews == 0)) 
+## Set those reviews per month to 0
+abnb$reviews_per_month[is.na(abnb$reviews_per_month)] <- 0
+## Drop sites with no availability
+abnb <- abnb[abnb$availability_365 != 0,]
+
+## Calculate Popularity Proxy
+abnb$popularity <- abnb$reviews_per_month*12/abnb$availability_365
+
+## Popularity should now be a measure of reviews/day available
+## If no sites have dramatically changed their availability (i.e. significantly decreased it) these popularity scores should fall between 0 and 1
+## Drop sites with popularity over 1 since they violate our 'constant-availability' assumption
+abnb <- abnb[abnb$popularity <= 1,]
+
+
+## Add name-based features
+names <- abnb$name
+names <- as.character(names)
+names <- strsplit(tolower(names), " ")
+
+words <- unlist(names)
+# uncomment next line to see word list
+#summary(factor(words))
+
+## Somewhat ad hoc, selecting among most common words from complete list of names. Trying to select words that don't indicate location or type of listing (e.g. "Midtown", "House"), and grouping words by intuition. Given unlimited time could try some kind of latent topic modeling for principled grouping
+adjectives <- list(c("cozy", "comfy", "comfortable", "charm", "charming", "quiet"), c("spacious", "large", "huge", "big", "space"), c("beautiful", "lovely", "gorgeous", "view"), c("new", "bright", "clean", "sunny", "modern"), c("great", "amazing","prime", "best", "perfect"))
+
+features <- matrix(data = 0, nrow = length(names), ncol = length(adjectives))
+
+for(n in 1:length(names)){
+  for(c in  1:length(adjectives)){
+    for(a in adjectives[[c]]){
+      if(a %in% names[[n]]){features[n,c] <-  1}
+    }
+  }
+}
+
+abnb$comfort <- features[,1]
+abnb$space <- features[,2]
+abnb$beauty <- features[,3]
+abnb$upkeep <- features[,4]
+abnb$superlative <- features[,5]
+
+summary(abnb)
 ```
 Drop any observations between 2000 and 10000 per night, which account for roughly 1/1000 observations.
 ```{r}
@@ -22,7 +71,8 @@ hist(log(abnb$price))
 
 
 ```{r}
-plot(log(abnb$price), abnb$reviews_per_month)
+library(ggplot2)
+ggplot(data = abnb, mapping = aes(y = reviews_per_month, x = log(price))) + geom_point() + facet_wrap(~room_type)
 ```
 
 
