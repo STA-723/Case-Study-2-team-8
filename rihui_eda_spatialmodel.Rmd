@@ -23,7 +23,7 @@ set.seed(1927)
 ```{r}
 data=read.csv(file = 'AB_NYC_2019.csv') %>%
      na.omit() %>% #deleta all NAs %>% 
-     filter(price>0.001) #only consider the data with price>0
+     filter(price>0.001) #only consider the data with price>0.001
 cord=as.matrix(data %>% select(longitude,latitude))
 #extract locations
 ```
@@ -47,6 +47,9 @@ data=data %>% mutate(luxury=grepl('luxury',data$name) %>% as.numeric() )  %>%
 The top 3 popular adjective words are: private, spacious, luxury.
 
 ##EDA
+```{r}
+
+```
 
 
 
@@ -92,6 +95,7 @@ Do the contour plot of $w$ using 500 datapoints.-not very meaningful
 ```{r}
 res=2000
 w.hat_pri <- apply(m.uni_pri$p.w.recover.samples, 1, median)
+w.hat_pri_quant <- apply(m.uni_pri$p.w.recover.samples, 1, quantile, probs = c(0.05, 0.95),  na.rm = TRUE)
 price_contour=data.frame(x=cord[1:res,1],
                          y=cord[1:res,2],
                          z=w.hat[1:res]) 
@@ -115,7 +119,7 @@ for (name in borough_names) {
         borough_table_pri[i]=w.hat_pri[which(data$neighbourhood_group==name)] %>% mean()
         i=i+1
 }
-borough_table_pri=borough_table_pri %>% sort()
+
 
 ####Ranking Neighbourhood
 neigh_names=unique(data$neighbourhood)
@@ -126,15 +130,29 @@ for (name in neigh_names) {
         neigh_table_pri[i]=w.hat_pri[which(data$neighbourhood==name)] %>% mean()
         i=i+1
 }
-neigh_table_pri=neigh_table_pri %>% sort()
+
 
 ```
+
 ```{r}
-borough_table_pri 
-neigh_table_pri[1:5] ###Top 5
-neigh_table_pri %>% tail(n=5) ###Last 5
+borough_table_pri  %>% sort
+neigh_table_pri %>% sort() ###Top 5
 ```
-Look at
+Look at the quantiles of boroughs
+```{r}
+
+borough_table_pri_quant=matrix(0,5,2)
+rownames(borough_table_pri_quant)<-borough_names
+i=1
+for (name in borough_names) {
+        borough_table_pri_quant[i,]=w.hat_pri_quant[,which(data$neighbourhood_group==name)] %>% rowMeans()
+        i=i+1
+}
+borough_tab=cbind(borough_table_pri_quant,borough_table_pri) 
+colnames(borough_tab)<-c("5%","95%","mean")
+borough_tab[order(borough_tab[,3]),]
+```
+Look at the quantiles of neighbourhoods
 
 Do some plot
 ```{r}
