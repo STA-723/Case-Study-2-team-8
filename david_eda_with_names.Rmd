@@ -2,6 +2,8 @@
 title: "R Notebook"
 output: html_notebook
 ---
+
+
 ```{r}
 abnb <- read.csv("/Users/Buch/Desktop/Case Studies/AirBnB/airbnb.csv")
 ## Drop $10,000 sites as they seem to be placeholders/spoofs
@@ -11,8 +13,8 @@ abnb <- abnb[abnb$price != 1e4,]
 ## Notice Reviews per Month is set to 0 for exactly those sites that
 ## have no reviews
 sum(is.na(abnb$reviews_per_month) != (abnb$number_of_reviews == 0)) 
-## Set those reviews per month to 0
-abnb$reviews_per_month[is.na(abnb$reviews_per_month)] <- 0
+## Drop sites with zero reviews - could include joke sites and outliers
+abnb <- abnb[abnb$number_of_reviews !=0,]
 ## Drop sites with no availability
 abnb <- abnb[abnb$availability_365 != 0,]
 
@@ -22,7 +24,7 @@ abnb$popularity <- abnb$reviews_per_month*12/abnb$availability_365
 ## Popularity should now be a measure of reviews/day available
 ## If no sites have dramatically changed their availability (i.e. significantly decreased it) these popularity scores should fall between 0 and 1
 ## Drop sites with popularity over 1 since they violate our 'constant-availability' assumption
-abnb <- abnb[abnb$popularity <= 1,]
+#abnb <- abnb[abnb$popularity <= 1,]
 
 
 ## Add name-based features
@@ -55,18 +57,106 @@ abnb$superlative <- features[,5]
 
 summary(abnb)
 ```
-Drop any observations between 2000 and 10000 per night, which account for roughly 1/1000 observations.
+
+
 ```{r}
-hist(abnb$price)
-pricey <- abnb[abnb$price > 500,]
-nrow(pricey)/nrow(abnb)
-affordable <- abnb[abnb$price <= 500,]
-hist(affordable$price)
-hist(pricey$price, breaks = 100)
-pricey <- pricey[pricey$price < 10000,]
-hist(pricey$price)
-hist(log(affordable$price))
-hist(log(abnb$price))
+abnb_bronx <- droplevels(abnb[abnb$neighbourhood_group == "Bronx",])
+abnb_brook <- droplevels(abnb[abnb$neighbourhood_group == "Brooklyn",])
+abnb_manh <- droplevels(abnb[abnb$neighbourhood_group == "Manhattan",])
+abnb_quee <- droplevels(abnb[abnb$neighbourhood_group == "Queens",])
+abnb_stat <- droplevels(abnb[abnb$neighbourhood_group == "Staten Island",])
+NvsR_bronx <- table(abnb_bronx$neighbourhood, abnb_bronx$room_type)
+NvsR_brook <- table(abnb_brook$neighbourhood, abnb_brook$room_type)
+NvsR_manh <- table(abnb_manh$neighbourhood, abnb_manh$room_type)
+NvsR_quee <- table(abnb_quee$neighbourhood, abnb_quee$room_type)
+NvsR_stat <- table(abnb_stat$neighbourhood, abnb_stat$room_type)
+NvsR_global <- table(abnb$neighbourhood, abnb$room_type)
+
+chisq.test(NvsR_bronx)
+chisq.test(NvsR_brook)
+chisq.test(NvsR_manh)
+chisq.test(NvsR_quee)
+chisq.test(NvsR_stat)
+chisq.test(NvsR_global)
+```
+
+## So we have evidence against Borough Confounding
+
+```{r}
+par(mfrow = c(2,3))
+
+abnb_nbh <- list(abnb_bronx, abnb_brook, abnb_manh, abnb_quee, abnb_stat, abnb)
+nbh_names <- c("Bronx", "Brooklyn", "Manhattan", "Queens", "Staten Island", "NYC - All")
+
+for(nbh in 1:length(abnb_nbh)){
+  n <- nrow(abnb_nbh[[nbh]])
+  LAM <- c()
+  for(i in 1:1e4){
+    p1 <- runif(nlevels(abnb_nbh[[nbh]]$neighbourhood) - 1)
+    p2 <- runif(nlevels(abnb_nbh[[nbh]]$room_type) - 1)
+    p1 <- c(0,sort(p1),1); p2 <- c(0,sort(p2),1)
+    p1 <- diff(p1); p2 <- diff(p2);
+    
+    p <- outer(p1, p2)
+    dim(p) <- NULL
+    
+    X <- rmultinom(1, size = n, prob = p)
+    X <- matrix(X, ncol = 3)
+    
+    p1mle <- colSums(t(X))/n
+    p2mle <- colSums(X)/n
+    pmle <- outer(p1mle, p2mle)
+    dim(pmle) <- NULL
+    
+    dim(X) <- NULL
+    
+    llh_0 <- dmultinom(X, prob = pmle, log = T) ## See rc for max
+    llh_alt <- dmultinom(X, prob = X/n, log = T)
+    
+    lam <- llh_0 - llh_alt
+    LAM[i] <- lam
+  }
+  
+  ## Now find and plot Log (LLH ratio) for data
+  X <- table(abnb_nbh[[nbh]]$neighbourhood, abnb_nbh[[nbh]]$room_type)
+  
+  p1mle <- colSums(t(X))/n
+  p2mle <- colSums(X)/n
+  pmle <- outer(p1mle, p2mle)
+  dim(pmle) <- NULL
+  
+  dim(X) <- NULL
+  
+  llh_0 <- dmultinom(X, prob = pmle, log = T) ## See rc for max
+  llh_alt <- dmultinom(X, prob = X/n, log = T)
+  
+  lam <- llh_0 - llh_alt
+  
+  
+  hist(LAM, xlim = c(1.2*lam, 0), main = paste(nbh_names[nbh],"log LR and \nSimul. Dsn. under Indep."))
+  abline(v = lam, col = "red")
+  
+  print(paste(nbh_names[nbh], "p value:", mean(LAM < lam)))
+}
+
+par(mfrow = c(1,1))
+```
+
+
+
+
+
+```{r}
+library(png)
+nyc <- readPNG("New_York_City_.png")
+plot(1:2, type='n', main="", xlab="x", ylab="y")
+ 
+# Get the plot information so the image will fill the plot box, and draw it
+lim <- par()
+rasterImage(nyc, 
+            xleft=0, xright=2, 
+            ybottom=0, ytop=2)
+
 ```
 
 
@@ -105,3 +195,31 @@ summary(nmod)
 ## Note, this recommendation is based on price alone. We also need to find words that optimize popularity
 
 ```
+
+
+
+### Plot NYC
+```{r}
+library(ggmap)
+nyc_map <- get_map(location = c(min(abnb$longitude), min(abnb$latitude), max(abnb$longitude), max(abnb$latitude)), color = "bw")
+ny <- ggmap(nyc_map)
+ny + geom_point(aes(x = x, y = y, color = exp(z)), data = price_xyz, size = 0.0001) + xlab("Longitude") + ylab("Latitude") + scale_color_gradient2(low = "red", high = "blue", midpoint = 1) + ggtitle("NYC ABnB Adjusted Relative Price") + guides(color = guide_colorbar(title = NULL))
+
+
+nyc_map <- get_map(location = c(min(abnb$longitude), min(abnb$latitude), max(abnb$longitude), max(abnb$latitude)), color = "bw")
+ny <- ggmap(nyc_map)
+ny + geom_point(aes(x = x, y = y, color = exp(z)), data = pop_xyz, size = 0.0001) + xlab("Longitude") + ylab("Latitude") + scale_color_gradient2(low = "red", high = "blue", midpoint = 1) + ggtitle("NYC ABnB Adjusted Relative Popularity") + guides(color = guide_colorbar(title = NULL))
+```
+
+```{r}
+## case for logging
+par(mfrow = c(2,2))
+hist(abnb$price, main = "Price", xlab = NA)
+hist(log(abnb$price), main = "Log Price", xlab = NA)
+hist(abnb$popularity, main = "Popularity", xlab = NA)
+hist(log(abnb$popularity), main = "Log Popularity", xlab = NA)
+par(mfrow=c(1,1))
+```
+
+
+
